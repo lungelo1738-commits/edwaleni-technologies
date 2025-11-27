@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "[LMSXXX-X] - project name"
+version = "0.1.0"
+description = "project description"  # Add an appropriate description
+authors = ["daniel-pons <edwaleni.tech@gmail.com>"]
+readme = "ReadMe.md"
+package-mode = false
+
+[tool.poetry.dependencies] # Specify all dependencies. Similar to requirements.txt
+python = "^3.12"
+pandas = "^2.2.3"
+
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]  # Specify a version for poetry-core
+build-backend = "poetry.core.masonry.api"
