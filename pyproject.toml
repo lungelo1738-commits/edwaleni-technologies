@@ -9,7 +9,9 @@ package-mode = false
 [tool.poetry.dependencies] # Specify all dependencies. Similar to requirements.txt
 python = "^3.12"
 pandas = "^2.2.3"
-
+num2words = "^0.5.14"  # Added for converting numbers to words
+markdown-pdf = "^1.10"  # Added for generating PDFs
+Markdown2docx = "^0.1.0" # Added for generating word docs people can edit themselves
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]  # Specify a version for poetry-core
