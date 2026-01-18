@@ -1,72 +1,171 @@
-#!/usr/bin/env python3
-"""
-Lease Agreement Generator
-Imports landlord_config and tenant_config to generate complete lease
-"""
+def main():
+    # ============================================================
+    # FREECAD PART IDENTIFICATION + DATABASE + QR CODES
+    # ============================================================
 
-import sys
-from datetime import datetime, timedelta
-from dateutil.relativedelta import relativedelta  # pip install python-dateutil
+    import FreeCAD as App
+    import os
+    import uuid
+    import pandas as pd
+    from datetime import datetime
 
-# Import configurations
-try:
-    from config_landlord import *
-    from tenant_config import *
-except ImportError as e:
-    print(f"Error importing config files: {e}")
-    print("Make sure config_landlord.py and tenant_config.py are in the same directory")
-    sys.exit(1)
+    # -----------------------------
+    # OPTIONAL QR MODULE
+    # -----------------------------
+    try:
+        import qrcode
+        QR_AVAILABLE = True
+    except Exception:
+        QR_AVAILABLE = False
+        print("⚠ QR code library not available — QR generation skipped")
 
-# Import Templates
-try:
-    from lease-blank import *
-    from house-rules.py import *
-except ImportError as e:
-    print(f"Error importing config files: {e}")
-    print("Make sure house-rules.py and lease-blank.py are in the same directory")
-    sys.exit(1)
+    # -----------------------------
+    # ACTIVE DOCUMENT
+    # -----------------------------
+    doc = App.ActiveDocument
+    if doc is None:
+        raise RuntimeError(" No active FreeCAD document open")
+
+    base_dir = os.path.dirname(doc.FileName)
+    export_dir = os.path.join(base_dir, "EXPORTS")
+    qr_dir = os.path.join(export_dir, "QR_CODES")
+
+    os.makedirs(export_dir, exist_ok=True)
+    if QR_AVAILABLE:
+        os.makedirs(qr_dir, exist_ok=True)
+
+    db_path = os.path.join(export_dir, "boxblade_parts_database.csv")
+    serial_file = os.path.join(export_dir, "serial_registry.txt")
+
+    # -----------------------------
+    # MODELS (BB1200 REMOVED)
+    # -----------------------------
+    MODELS = [
+        "BB1500",
+        "BB1800",
+        "BB2100",
+        "BB2400"
+    ]
+
+    # -----------------------------
+    # PART DEFINITIONS
+    # -----------------------------
+    PARTS = {
+        "Body":    ("EDW013-1.1", "Body"),
+        "Body001": ("EDW013-1.2", "Body001"),
+        "Body003": ("EDW013-1.3", "Blade"),
+        "Body004": ("EDW013-1.4", "Scarifier"),
+        "Body005": ("EDW013-1.5", "Scarifier Teeth"),
+        "Body006": ("EDW013-1.6", "Teeth Pin"),
+        "Body007": ("EDW013-1.7", "Scarifier Pin")
+    }
+
+    # -----------------------------
+    # SERIAL NUMBER SYSTEM
+    # -----------------------------
+    def next_serial():
+        if not os.path.exists(serial_file):
+            with open(serial_file, "w") as f:
+                f.write("0")
+
+        with open(serial_file, "r+") as f:
+            last = int(f.read().strip() or 0)
+            new = last + 1
+            f.seek(0)
+            f.write(str(new))
+            f.truncate()
+
+        return f"EDW{new:06d}"
+
+    # -----------------------------
+    # DATABASE RECORDS
+    # -----------------------------
+    records = []
+
+    # ============================================================
+    # MAIN LOOP
+    # ============================================================
+    for model in MODELS:
+        print(f"\n▶ Processing model: {model}")
+
+        for obj_name, (part_number, description) in PARTS.items():
+
+            obj = doc.getObject(obj_name)
+            if obj is None:
+                print(f"⚠ Object '{obj_name}' not found — skipped")
+                continue
+
+            part_id = str(uuid.uuid4())
+            serial_number = next_serial()
+
+            # -------------------------
+            # SAFE PROPERTY CREATION
+            # -------------------------
+            def set_prop(prop_type, prop_name, value):
+                if not hasattr(obj, prop_name):
+                    obj.addProperty(prop_type, prop_name, "Identification")
+                setattr(obj, prop_name, value)
+
+            set_prop("App::PropertyString", "ModelNumber", model)
+            set_prop("App::PropertyString", "PartNumber", part_number)
+            set_prop("App::PropertyString", "SerialNumber", serial_number)
+            set_prop("App::PropertyString", "PartID", part_id)
+            set_prop("App::PropertyString", "Description", description)
+
+            # -------------------------
+            # QR CODE GENERATION
+            # -------------------------
+            qr_path = None
+            if QR_AVAILABLE:
+                qr_text = (
+                    f"Brand: EDW\n"
+                    f"Model: {model}\n"
+                    f"Part Number: {part_number}\n"
+                    f"Description: {description}\n"
+                    f"Serial Number: {serial_number}\n"
+                    f"Part ID: {part_id}"
+                )
+
+                img = qrcode.make(qr_text)
+                qr_path = os.path.join(qr_dir, f"{serial_number}.png")
+                img.save(qr_path)
+
+            # -------------------------
+            # DATABASE ENTRY
+            # -------------------------
+            records.append({
+                "part_id": part_id,
+                "model_number": model,
+                "internal_name": obj_name,
+                "description": description,
+                "part_number": part_number,
+                "serial_number": serial_number,
+                "qr_code_path": qr_path,
+                "timestamp": datetime.now().isoformat()
+            })
+
+    # -----------------------------
+    # VALIDATION
+    # -----------------------------
+    if not records:
+        raise RuntimeError(" No parts registered — check internal names")
+
+    # -----------------------------
+    # SAVE DATABASE
+    # -----------------------------
+    df = pd.DataFrame(records)
+    df.to_csv(db_path, index=False)
+
+    doc.recompute()
+
+    print("\n✅ AUTOMATION COMPLETE")
+    print(f"✔ Parts registered: {len(records)}")
+    print(f"✔ Database saved: {db_path}")
+    if QR_AVAILABLE:
+        print(f"✔ QR codes saved in: {qr_dir}")
 
 
-# Auto-calculate termination date and period words
-def calculate_lease_details():
-    start_date = datetime.strptime(commencement_date, "%d %B %Y")
-    end_date = start_date + relativedelta(months=lease_months)
-
-    # Auto-set period words
-    period_words_map = {1: "one", 6: "six", 12: "twelve"}
-    global lease_period_words
-    lease_period_words = period_words_map.get(lease_months, f"{lease_months}")
-
-    # Format termination date
-    global termination_date
-    termination_date = end_date.strftime("%d %B %Y")
-
-    print(f"✅ Lease calculated: {commencement_date} → {termination_date} ({lease_months} months)")
-
-
-# Generate complete lease
-def generate_complete_lease():
-    calculate_lease_details()
-
-    # Main lease F-string (your updated version from previous message)
-    lease_agreement_md = f"""[YOUR FULL LEASE F-STRING HERE - paste the complete one]"""
-
-    # Appendix A&B F-string (your version from previous message)
-    appendix_a_b_md = f"""[YOUR APPENDIX A&B F-STRING HERE - paste the complete one]"""
-
-    complete_lease = lease_agreement_md + "\n\n" + appendix_a_b_md
-
-    # Filename with tenant name and dates
-    filename = f"{lessee_name.replace(' ', '_')}_Lease_{commencement_date.replace(' ', '_').replace(',', '')}.md"
-
-    with open(filename, "w", encoding="utf-8") as f:
-        f.write(complete_lease)
-
-    print(f"✅ Lease generated: {filename}")
-    print(f"   Tenant: {lessee_name}")
-    print(f"   Period: {commencement_date} to {termination_date}")
-    print(f"   Rental: R{rental_amount}/month")
-
-
-if __name__ == "__main__":
-    generate_complete_lease()
+# ============================================================
+# ENTRY POINT
+# ============================================================
+main()
